@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pomodoro Live Scheduler</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-start: #1b2a18;
+      --bg-end:   #22321f;
+      --accent:   #8fc93a;
+      --text:     #dcedc2;
+      --muted:    #bbbbbb;
+      --transition: 0.3s ease;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(120deg, var(--bg-start), var(--bg-end));
+      background-size: 200% 200%;
+      animation: gradientShift 240s var(--transition) infinite;
+      position: relative;
+      transition: background var(--transition);
+    }
+    @keyframes gradientShift { 0%,100% { background-position:0% 0%; } 50% { background-position:100% 100%; } }
+    body::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(45deg,
+        rgba(255,255,255,0.05) 0,
+        rgba(255,255,255,0.05) 3px,
+        transparent 3px,
+        transparent 15px
+      );
+      background-size:20px 20px;
+      animation:stripesMove 14400s linear infinite;
+      pointer-events:none;
+      z-index:0;
+    }
+    @keyframes stripesMove { to { background-position:-5000px 5000px; } }
+    #fullscreen-btn {
+      position:absolute;
+      top:16px; right:16px; z-index:2;
+      background:rgba(0,0,0,0.5);
+      border:none;
+      color:var(--text);
+      padding:8px;
+      border-radius:6px;
+      cursor:pointer;
+      font-size:18px;
+      transition:background var(--transition);
+    }
+    #fullscreen-btn:hover { background:rgba(0,0,0,0.7); }
+    #container {
+      position:relative; z-index:1;
+      width:380px; max-width:90%;
+      padding:2rem 1.5rem;
+      background:rgba(0,0,0,0.35);
+      border-radius:16px;
+      text-align:center;
+      box-shadow:0 12px 24px rgba(0,0,0,0.5);
+      transition:color var(--transition);
+    }
+    h1 {
+      font-size:2.4rem;
+      margin-bottom:0.5rem;
+      text-transform:uppercase;
+      color:var(--text);
+    }
+    #timer {
+      font-size:4rem;
+      font-weight:600;
+      margin:0.5rem 0 1rem;
+      color:var(--text);
+    }
+    #next-info {
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      margin-bottom:1rem;
+      color:var(--text);
+    }
+    .next-label {
+      font-size:0.75rem;
+      color:var(--muted);
+      letter-spacing:1.5px;
+      margin-bottom:0.25rem;
+    }
+    .next-content {
+      display:flex;
+      align-items:center;
+    }
+    .morph-dot {
+      width:16px; height:16px;
+      margin-right:8px;
+      border-radius:50%;
+      background:radial-gradient(circle at center, var(--accent) 0%, transparent 70%);
+      box-shadow:0 0 8px var(--accent);
+      animation:morph var(--morph-duration,6s) ease-in-out infinite;
+      transform-origin:center;
+    }
+    @keyframes morph { 0%,100% { transform:scale(1) rotate(0deg);} 25% { transform:scale(1.1) rotate(20deg);} 50% { transform:scale(0.9) rotate(-20deg);} 75% { transform:scale(1.05) rotate(10deg);} }
+    #progressBar {
+      width:100%; height:8px;
+      background:rgba(255,255,255,0.2);
+      border-radius:4px;
+      overflow:hidden;
+      margin-top:1rem;
+    }
+    #progress {
+      width:0; height:100%;
+      background:var(--accent);
+      transition:width 1s linear;
+    }
+    .fade-in { animation:fadeIn 0.5s ease-out; }
+    @keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
+  </style>
+</head>
+<body>
+  <button id="fullscreen-btn" aria-label="Toggle Fullscreen">⛶</button>
+  <div id="container">
+    <h1 id="state-label">--</h1>
+    <div id="timer">--:--</div>
+    <div id="next-info">
+      <div class="next-label">NEXT</div>
+      <div class="next-content"><span class="morph-dot"></span><span id="next-text">--</span></div>
+    </div>
+    <div id="progressBar"><div id="progress"></div></div>
+  </div>
+  <audio id="notification-sound" preload="auto">
+    <source src="new-notification-09-352705.mp3" type="audio/mpeg">
+  </audio>
+  <script>
+    (function() {
+      const schedule = {
+        Monday: [
+          { start: '8:45 AM',  end: '9:12 AM',  name: 'Pomodoro 1' },
+          { start: '9:12 AM',  end: '9:18 AM',  name: 'Break'        },
+          { start: '9:18 AM',  end: '9:45 AM',  name: 'Pomodoro 2' },
+          { start: '9:45 AM',  end: '9:51 AM',  name: 'Break'        },
+          { start: '9:51 AM',  end: '10:18 AM', name: 'Pomodoro 3' },
+          { start: '10:18 AM', end: '10:28 AM', name: 'Long Break'   },
+          { start: '10:28 AM', end: '10:55 AM', name: 'Pomodoro 4' },
+          { start: '10:55 AM', end: '11:01 AM', name: 'Break'        },
+          { start: '11:01 AM', end: '11:28 AM', name: 'Pomodoro 5' },
+          { start: '11:28 AM', end: '11:34 AM', name: 'Break'        },
+          { start: '11:34 AM', end: '12:00 PM', name: 'Pomodoro 6' },
+          { start: '12:00 PM', end: '12:45 PM', name: 'Lunch'        },
+          { start: '12:45 PM', end: '1:15 PM',  name: 'Brain Lift'  },
+          { start: '1:15 PM',  end: '1:30 PM',  name: 'Focus Time'  },
+          { start: '1:30 PM',  end: '1:36 PM',  name: 'Break'       },
+          { start: '1:36 PM',  end: '2:03 PM',  name: 'Focus Time'  },
+          { start: '2:03 PM',  end: '2:09 PM',  name: 'Break'       },
+          { start: '2:09 PM',  end: '2:36 PM',  name: 'Focus Time'  },
+          { start: '2:36 PM',  end: '2:42 PM',  name: 'Break'       },
+          { start: '2:42 PM',  end: '3:09 PM',  name: 'Focus Time'  },
+          { start: '3:09 PM',  end: '3:15 PM',  name: 'Break'       },
+          { start: '3:15 PM',  end: '3:45 PM',  name: 'Insights'    },
+          { start: '3:45 PM',  end: '3:55 PM',  name: 'Clean Up'    },
+          { start: '3:55 PM',  end: '4:00 PM',  name: 'Buffer'      },
+          { start: '4:00 PM',  end: '11:59 PM', name: 'Free Time'   }
+        ],
+        Tuesday: [
+          { start: '8:45 AM',  end: '9:12 AM',  name: 'Pomodoro 1' },
+          { start: '9:12 AM',  end: '9:18 AM',  name: 'Break'        },
+          { start: '9:18 AM',  end: '9:45 AM',  name: 'Pomodoro 2' },
+          { start: '9:45 AM',  end: '9:51 AM',  name: 'Break'        },
+          { start: '9:51 AM',  end: '10:18 AM', name: 'Pomodoro 3' },
+          { start: '10:18 AM', end: '10:28 AM', name: 'Long Break'   },
+          { start: '10:28 AM', end: '10:55 AM', name: 'Pomodoro 4' },
+          { start: '10:55 AM', end: '11:01 AM', name: 'Break'        },
+          { start: '11:01 AM', end: '11:28 AM', name: 'Pomodoro 5' },
+          { start: '11:28 AM', end: '11:34 AM', name: 'Break'        },
+          { start: '11:34 AM', end: '12:00 PM', name: 'Pomodoro 6' },
+          { start: '12:00 PM', end: '12:45 PM', name: 'Lunch'        },
+          { start: '12:45 PM', end: '1:15 PM',  name: 'Brain Lift'  },
+          { start: '1:15 PM',  end: '1:30 PM',  name: 'Focus Time'  },
+          { start: '1:30 PM',  end: '1:36 PM',  name: 'Break'       },
+          { start: '1:36 PM',  end: '2:03 PM',  name: 'Focus Time'  },
+          { start: '2:03 PM',  end: '2:09 PM',  name: 'Break'       },
+          { start: '2:09 PM',  end: '2:36 PM',  name: 'Focus Time'  },
+          { start: '2:36 PM',  end: '2:42 PM',  name: 'Break'       },
+          { start: '2:42 PM',  end: '3:09 PM',  name: 'Focus Time'  },
+          { start: '3:09 PM',  end: '3:15 PM',  name: 'Break'       },
+          { start: '3:15 PM',  end: '3:45 PM',  name: 'Insights'    },
+          { start: '3:45 PM',  end: '3:55 PM',  name: 'Clean Up'    },
+          { start: '3:55 PM',  end: '4:00 PM',  name: 'Buffer'      },
+          { start: '4:00 PM',  end: '11:59 PM', name: 'Free Time'   }
+        ],
+        Wednesday: [
+          { start: '8:45 AM',  end: '9:12 AM',  name: 'Pomodoro 1' },
+          { start: '9:12 AM',  end: '9:18 AM',  name: 'Break'        },
+          { start: '9:18 AM',  end: '9:45 AM',  name: 'Pomodoro 2' },
+          { start: '9:45 AM',  end: '9:51 AM',  name: 'Break'        },
+          { start: '9:51 AM',  end: '10:18 AM', name: 'Pomodoro 3' },
+          { start: '10:18 AM', end: '10:28 AM', name: 'Long Break'   },
+          { start: '10:28 AM', end: '10:55 AM', name: 'Pomodoro 4' },
+          { start: '10:55 AM', end: '11:01 AM', name: 'Break'        },
+          { start: '11:01 AM', end: '11:28 AM', name: 'Pomodoro 5' },
+          { start: '11:28 AM', end: '11:34 AM', name: 'Break'        },
+          { start: '11:34 AM', end: '12:00 PM', name: 'Pomodoro 6' },
+          { start: '12:00 PM', end: '12:45 PM', name: 'Lunch'        },
+          { start: '12:45 PM', end: '1:15 PM',  name: 'Brain Lift'  },
+          { start: '1:15 PM',  end: '1:30 PM',  name: 'Focus Time'  },
+          { start: '1:30 PM',  end: '1:36 PM',  name: 'Break'       },
+          { start: '1:36 PM',  end: '2:03 PM',  name: 'Focus Time'  },
+          { start: '2:03 PM',  end: '2:09 PM',  name: 'Break'       },
+          { start: '2:09 PM',  end: '2:36 PM',  name: 'Focus Time'  },
+          { start: '2:36 PM',  end: '2:42 PM',  name: 'Break'       },
+          { start: '2:42 PM',  end: '3:09 PM',  name: 'Focus Time'  },
+          { start: '3:09 PM',  end: '3:15 PM',  name: 'Break'       },
+          { start: '3:15 PM',  end: '3:45 PM',  name: 'Insights'    },
+          { start: '3:45 PM',  end: '3:55 PM',  name: 'Clean Up'    },
+          { start: '3:55 PM',  end: '4:00 PM',  name: 'Buffer'      },
+          { start: '4:00 PM',  end: '11:59 PM', name: 'Free Time'   }
+        ],
+        Thursday: [
+          { start: '8:45 AM',  end: '9:12 AM',  name: 'Pomodoro 1' },
+          { start: '9:12 AM',  end: '9:18 AM',  name: 'Break'        },
+          { start: '9:18 AM',  end: '9:45 AM',  name: 'Pomodoro 2' },
+          { start: '9:45 AM',  end: '9:51 AM',  name: 'Break'        },
+          { start: '9:51 AM',  end: '10:18 AM', name: 'Pomodoro 3' },
+          { start: '10:18 AM', end: '10:28 AM', name: 'Long Break'   },
+          { start: '10:28 AM', end: '10:55 AM', name: 'Pomodoro 4' },
+          { start: '10:55 AM', end: '11:01 AM', name: 'Break'        },
+          { start: '11:01 AM', end: '11:28 AM', name: 'Pomodoro 5' },
+          { start: '11:28 AM', end: '11:34 AM', name: 'Break'        },
+          { start: '11:34 AM', end: '12:00 PM', name: 'Pomodoro 6' },
+          { start: '12:00 PM', end: '12:45 PM', name: 'Lunch'        },
+          { start: '12:45 PM', end: '1:15 PM',  name: 'Brain Lift'  },
+          { start: '1:15 PM',  end: '1:30 PM',  name: 'Focus Time'  },
+          { start: '1:30 PM',  end: '1:36 PM',  name: 'Break'       },
+          { start: '1:36 PM',  end: '2:03 PM',  name: 'Focus Time'  },
+          { start: '2:03 PM',  end: '2:09 PM',  name: 'Break'       },
+          { start: '2:09 PM',  end: '2:36 PM',  name: 'Focus Time'  },
+          { start: '2:36 PM',  end: '2:42 PM',  name: 'Break'       },
+          { start: '2:42 PM',  end: '3:09 PM',  name: 'Focus Time'  },
+          { start: '3:09 PM',  end: '3:15 PM',  name: 'Break'       },
+          { start: '3:15 PM',  end: '3:45 PM',  name: 'Insights'    },
+          { start: '3:45 PM',  end: '3:55 PM',  name: 'Clean Up'    },
+          { start: '3:55 PM',  end: '4:00 PM',  name: 'Buffer'      },
+          { start: '4:00 PM',  end: '11:59 PM', name: 'Free Time'   }
+        ],
+        Friday: [
+          { start: '8:45 AM',  end: '9:12 AM',  name: 'Pomodoro 1' },
+          { start: '9:12 AM',  end: '9:18 AM',  name: 'Break'        },
+          { start: '9:18 AM',  end: '9:45 AM',  name: 'Pomodoro 2' },
+          { start: '9:45 AM',  end: '9:51 AM',  name: 'Break'        },
+          { start: '9:51 AM',  end: '10:18 AM', name: 'Pomodoro 3' },
+          { start: '10:18 AM', end: '10:28 AM', name: 'Long Break'   },
+          { start: '10:28 AM', end: '10:55 AM', name: 'Pomodoro 4' },
+          { start: '10:55 AM', end: '11:01 AM', name: 'Break'        },
+          { start: '11:01 AM', end: '11:28 AM', name: 'Pomodoro 5' },
+          { start: '11:28 AM', end: '11:34 AM', name: 'Break'        },
+          { start: '11:34 AM', end: '12:00 PM', name: 'Pomodoro 6' },
+          { start: '12:00 PM', end: '12:45 PM', name: 'Lunch'        },
+          { start: '12:45 PM', end: '1:15 PM',  name: 'Brain Lift'  },
+          { start: '1:15 PM',  end: '1:30 PM',  name: 'Focus Time'  },
+          { start: '1:30 PM',  end: '1:36 PM',  name: 'Break'       },
+          { start: '1:36 PM',  end: '2:03 PM',  name: 'Focus Time'  },
+          { start: '2:03 PM',  end: '2:09 PM',  name: 'Break'       },
+          { start: '2:09 PM',  end: '2:36 PM',  name: 'Focus Time'  },
+          { start: '2:36 PM',  end: '2:42 PM',  name: 'Break'       },
+          { start: '2:42 PM',  end: '3:09 PM',  name: 'Focus Time'  },
+          { start: '3:09 PM',  end: '3:15 PM',  name: 'Break'       },
+          { start: '3:15 PM',  end: '3:45 PM',  name: 'Insights'    },
+          { start: '3:45 PM',  end: '3:55 PM',  name: 'Clean Up'    },
+          { start: '3:55 PM',  end: '4:00 PM',  name: 'Buffer'      },
+          { start: '4:00 PM',  end: '11:59 PM', name: 'Free Time'   }
+        ]
+      };
+
+
+    function parseTime(str) {
+      const [time, period] = str.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (period === 'PM' && h < 12) h += 12;
+      if (period === 'AM' && h === 12) h = 0;
+      return { hour: h, minute: m };
+    }
+
+    function getCST() {
+      return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+    }
+
+    const dot = document.querySelector('.morph-dot');
+    const stateLabel = document.getElementById('state-label');
+    const timerEl = document.getElementById('timer');
+    const nextText = document.getElementById('next-text');
+    const progressEl = document.getElementById('progress');
+    const root = document.documentElement;
+    const notificationSound = document.getElementById('notification-sound');
+    let previousActivity = null;
+    document.getElementById('fullscreen-btn').addEventListener('click', () => {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    });
+
+    function setMorph() {
+      const duration = (Math.random() * 4 + 5).toFixed(2) + 's';
+      dot.style.setProperty('--morph-duration', duration);
+    }
+
+    function getBlocksForDay(date) {
+      const dayName = date.toLocaleString('en-US', { weekday: 'long' });
+      const raw = schedule[dayName] || [];
+      return raw.map(b => {
+        const sd = parseTime(b.start);
+        const ed = parseTime(b.end);
+        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), sd.hour, sd.minute);
+        let end = new Date(start);
+        end.setHours(ed.hour, ed.minute);
+        if (end <= start) end.setDate(end.getDate() + 1);
+        return { name: b.name, start, end };
+      });
+    }
+
+    function update() {
+      const now = getCST();
+      const blocks = getBlocksForDay(now);
+      const current = blocks.find(b => now >= b.start && now < b.end) || null;
+      let next;
+      if (current) {
+        next = blocks[(blocks.indexOf(current) + 1) % blocks.length];
+      } else {
+        next = blocks.find(b => b.start > now) || blocks[0];
+      }
+      const currentActivityName = current ? current.name : 'Starting In';
+      stateLabel.textContent = currentActivityName;
+      nextText.textContent = next ? next.name : '--';
+
+      // Play notification sound when activity changes
+      if (previousActivity !== null && previousActivity !== currentActivityName) {
+        notificationSound.currentTime = 0; // Reset to beginning
+        notificationSound.play().catch(e => console.log('Audio play failed:', e));
+      }
+      previousActivity = currentActivityName;
+
+      // Theme based strictly on current block name
+      let name = current ? current.name : '';
+      let bgStart = '#1b2a18';
+      let bgEnd = '#22321f';
+      let accent = '#8fc93a';
+      if (name === 'Lunch') {
+        bgStart = '#006666'; bgEnd = '#009999'; accent = '#00ffe0';
+      } else if (name === 'Break') {
+        bgStart = '#ff6666'; bgEnd = '#ff9999'; accent = '#ff0066';
+      }
+      root.style.setProperty('--bg-start', bgStart);
+      root.style.setProperty('--bg-end', bgEnd);
+      root.style.setProperty('--accent', accent);
+      document.body.style.background = `linear-gradient(120deg, ${bgStart}, ${bgEnd})`;
+
+      // Countdown
+      const targetTime = (current ? current.end : next.start).getTime();
+      let diff = Math.max(0, targetTime - now.getTime());
+      const m = Math.floor(diff / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      timerEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+
+      // Progress bar
+      if (current) {
+        const total = current.end.getTime() - current.start.getTime();
+        const elapsed = now.getTime() - current.start.getTime();
+        progressEl.style.width = `${(elapsed / total) * 100}%`;
+      } else {
+        progressEl.style.width = '0%';
+      }
+
+      // Fade animation
+      [stateLabel, timerEl, nextText, progressEl].forEach(el => {
+        el.classList.add('fade-in');
+        el.addEventListener('animationend', () => el.classList.remove('fade-in'), { once: true });
+      });
+
+      setMorph();
+      requestAnimationFrame(update);
+    }
+
+    setMorph();
+    update();
+  })();
+  </script>
+</body>
+</html>
